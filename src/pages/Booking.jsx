@@ -65,7 +65,7 @@ export default function Booking() {
     })
   }
 
-  function handleBooking(e) {
+  async function handleBooking(e) {
     e.preventDefault()
 
     if (selectedSeats.length === 0) {
@@ -79,7 +79,7 @@ export default function Booking() {
     }
 
     setLoading(true)
-    const res = createBooking({
+    const res = await createBooking({
       userId: user.id,
       userName: passengerName.trim(),
       userEmail: user?.email || '',

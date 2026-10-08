@@ -7,9 +7,15 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DB_FILE = path.resolve(__dirname, '../data/database.json');
+
+function getDbFile() {
+  return process.env.ONBUS_DB_FILE
+    ? path.resolve(process.env.ONBUS_DB_FILE)
+    : path.resolve(__dirname, '../data/database.json');
+}
 
 function readDb() {
+  const DB_FILE = getDbFile();
   try {
     if (!fs.existsSync(DB_FILE)) {
       return {
@@ -30,14 +36,25 @@ function readDb() {
 }
 
 function writeDb(data) {
+  const DB_FILE = getDbFile();
   try {
     data.lastUpdated = new Date().toISOString();
+    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
     return true;
   } catch (err) {
     console.error('[DB Error] Write failed:', err.message);
     return false;
   }
+}
+
+function normalizeText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function toMoney(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : 0;
 }
 
 // User Operations
@@ -110,6 +127,58 @@ export function dbLoginUser(identifier, password) {
 }
 
 // Booking Operations
+export function dbCreateTransaction(transactionData) {
+  const db = readDb();
+  const transactionId = normalizeText(transactionData.transactionId) || ('TXN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6).toUpperCase());
+  const userId = normalizeText(transactionData.userId);
+  const userEmail = normalizeText(transactionData.userEmail).toLowerCase();
+  const userPhone = normalizeText(transactionData.userPhone);
+  const paymentMode = normalizeText(transactionData.paymentMode).toUpperCase() || 'UPI';
+  const paymentStatus = normalizeText(transactionData.paymentStatus).toUpperCase() || 'PAID';
+
+  if (!userId || !userEmail || !userPhone || !transactionData.ticketId) {
+    return { success: false, error: 'User, email, phone number, and ticket ID are required' };
+  }
+
+  if (!/^[0-9]{10}$/.test(userPhone)) {
+    return { success: false, error: 'A valid 10-digit phone number is required' };
+  }
+
+  const transaction = {
+    transactionId,
+    ticketId: normalizeText(transactionData.ticketId),
+    userId,
+    userName: normalizeText(transactionData.userName),
+    userEmail,
+    userPhone,
+    amount: toMoney(transactionData.amount),
+    currency: normalizeText(transactionData.currency).toUpperCase() || 'INR',
+    paymentMode,
+    paymentStatus,
+    bookingStatus: normalizeText(transactionData.bookingStatus).toUpperCase() || 'CONFIRMED',
+    tripDate: normalizeText(transactionData.tripDate) || new Date().toISOString().split('T')[0],
+    departureTime: normalizeText(transactionData.departureTime) || '00:00',
+    route: transactionData.route || null,
+    timestamp: new Date().toISOString(),
+    reference: normalizeText(transactionData.paymentReference) || `REF_${Date.now()}`
+  };
+
+  db.transactions.push(transaction);
+  db.activity_logs.push({
+    id: 'LOG_' + Date.now(),
+    userId,
+    type: 'TRANSACTION',
+    action: 'TRANSACTION_RECORDED',
+    details: `Transaction ${transactionId} for ${transaction.ticketId} (${transaction.paymentMode})`,
+    userEmail,
+    userPhone,
+    timestamp: transaction.timestamp
+  });
+
+  writeDb(db);
+  return { success: true, transaction };
+}
+
 export function dbCreateBooking(bookingData) {
   const db = readDb();
 
@@ -147,19 +216,26 @@ export function dbCreateBooking(bookingData) {
 
   db.bookings.push(booking);
 
-  // Record Transaction in Ledger
-  db.transactions.push({
+  const transaction = {
     transactionId,
     ticketId,
     userId: booking.userId,
+    userName: booking.userName,
+    userEmail: booking.userEmail,
+    userPhone: booking.userPhone,
     amount: booking.totalAmount,
+    currency: 'INR',
     paymentMode: booking.paymentMode,
     paymentStatus: booking.paymentStatus,
+    bookingStatus: booking.bookingStatus,
+    tripDate: booking.travelDate,
+    departureTime: booking.departureTime,
+    route: booking.route,
     timestamp: new Date().toISOString(),
     reference: booking.paymentMode === 'CASH' ? 'CASH_CONDUCTOR_COLLECTION' : 'PG_MUMBAI_TRANSIT'
-  });
+  };
 
-  // Record Activity Log
+  db.transactions.push(transaction);
   db.activity_logs.push({
     id: 'LOG_' + Date.now(),
     userId: booking.userId,
@@ -169,7 +245,7 @@ export function dbCreateBooking(bookingData) {
   });
 
   writeDb(db);
-  return { success: true, booking };
+  return { success: true, booking, transaction };
 }
 
 export function dbGetUserBookings(userId) {
@@ -237,6 +313,36 @@ export function dbGetSearchHistory(userId = null) {
 }
 
 // Analytics and Full Export
+export function dbGetTransactions(userId = null) {
+  const db = readDb();
+  const transactions = userId
+    ? db.transactions.filter(t => t.userId === userId)
+    : db.transactions;
+  return transactions.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+}
+
+export function dbGetTransactionById(transactionId) {
+  const db = readDb();
+  return db.transactions.find(t => t.transactionId === transactionId) || null;
+}
+
+export function dbGetRecentHistory(userId = null, limit = 20) {
+  const db = readDb();
+  const items = db.activity_logs
+    .filter(entry => !userId || entry.userId === userId)
+    .slice()
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(0, limit);
+
+  return items.map(entry => ({
+    ...entry,
+    type: entry.type || 'ACTIVITY',
+    userId: entry.userId || userId || 'guest',
+    userPhone: entry.userPhone || '',
+    userEmail: entry.userEmail || ''
+  }));
+}
+
 export function dbGetStats() {
   const db = readDb();
   const totalRevenue = db.transactions

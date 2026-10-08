@@ -11,7 +11,11 @@ import {
   dbRecordSearch,
   dbGetSearchHistory,
   dbGetStats,
-  dbExportAll
+  dbExportAll,
+  dbCreateTransaction,
+  dbGetTransactions,
+  dbGetTransactionById,
+  dbGetRecentHistory
 } from './src/services/dbManager.js'
 
 function parseJsonBody(req) {
@@ -46,6 +50,29 @@ function busApiPlugin() {
 
           if (url.pathname === '/api/db/export') {
             res.end(JSON.stringify({ success: true, database: dbExportAll() }))
+            return
+          }
+
+          if (url.pathname === '/api/db/transactions') {
+            if (req.method === 'POST') {
+              const body = await parseJsonBody(req)
+              const result = dbCreateTransaction(body)
+              res.statusCode = result.success ? 201 : 400
+              res.end(JSON.stringify(result))
+              return
+            }
+
+            const userId = url.searchParams.get('userId')
+            const transactions = dbGetTransactions(userId)
+            res.end(JSON.stringify({ success: true, count: transactions.length, transactions }))
+            return
+          }
+
+          if (url.pathname === '/api/db/history') {
+            const userId = url.searchParams.get('userId')
+            const limit = Number(url.searchParams.get('limit') || 20)
+            const history = dbGetRecentHistory(userId, Number.isFinite(limit) ? limit : 20)
+            res.end(JSON.stringify({ success: true, count: history.length, history }))
             return
           }
 

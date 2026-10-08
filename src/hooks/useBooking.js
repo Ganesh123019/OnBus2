@@ -32,7 +32,7 @@ export function useBooking() {
     return all.find(b => b.ticketId === ticketId) || null
   }, [getBookings])
 
-  const createBooking = useCallback(({
+  const createBooking = useCallback(async ({
     userId,
     userName,
     userEmail = '',
@@ -89,19 +89,23 @@ export function useBooking() {
         bookedAt: new Date().toISOString()
       }
 
-      bookings.push(booking)
-      localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings))
-
-      // Asynchronously persist to database API
-      fetch('/api/db/bookings', {
+      const response = await fetch('/api/db/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(booking)
-      }).catch(err => console.warn('[DB Sync warning]:', err.message))
+      })
 
-      return { success: true, booking }
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Database booking failed')
+      }
+
+      bookings.push(booking)
+      localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings))
+
+      return { success: true, booking: result.booking }
     } catch (err) {
-      return { success: false, error: 'Booking failed. Please try again.' }
+      return { success: false, error: err.message || 'Booking failed. Please try again.' }
     }
   }, [getBookings])
 
