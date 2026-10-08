@@ -1,0 +1,290 @@
+{
+  "version": "2.0.0",
+  "createdAt": "2026-10-08T15:05:00.203Z",
+  "lastUpdated": "2026-10-08T15:22:47.930Z",
+  "users": [
+    {
+      "id": "user_demo",
+      "username": "demouser",
+      "name": "Demo User",
+      "email": "demo@onbus.in",
+      "phone": "9876543210",
+      "password": "demo123",
+      "role": "passenger",
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastLogin": "2026-10-08T15:05:00.207Z"
+    },
+    {
+      "id": "user_1",
+      "username": "priyasharma",
+      "name": "Priya Sharma",
+      "email": "priya@onbus.in",
+      "phone": "9123456789",
+      "password": "priya123",
+      "role": "passenger",
+      "createdAt": "2026-10-02T11:30:00.000Z",
+      "lastLogin": "2026-10-08T18:00:00.000Z"
+    }
+  ],
+  "bookings": [
+    {
+      "ticketId": "OB87A29B",
+      "transactionId": "TXN_20261008_OB87A29B",
+      "userId": "user_demo",
+      "userName": "Demo User",
+      "userEmail": "demo@onbus.in",
+      "userPhone": "9876543210",
+      "busId": "B421_1",
+      "busNumber": "421",
+      "operator": "BEST",
+      "busType": "Non-AC",
+      "route": {
+        "from": "Borivali Station",
+        "to": "Andheri Station",
+        "stops": [
+          "Borivali Station",
+          "Kandivali Station",
+          "Malad Station",
+          "Goregaon Station",
+          "Andheri Station"
+        ]
+      },
+      "boardingStop": "Borivali Station",
+      "droppingStop": "Andheri Station",
+      "locationPath": [
+        {
+          "lat": 19.2307,
+          "lng": 72.8567
+        },
+        {
+          "lat": 19.2046,
+          "lng": 72.8468
+        },
+        {
+          "lat": 19.1865,
+          "lng": 72.8486
+        },
+        {
+          "lat": 19.1663,
+          "lng": 72.8493
+        },
+        {
+          "lat": 19.1197,
+          "lng": 72.8466
+        }
+      ],
+      "currentBusLocation": {
+        "lat": 19.2277,
+        "lng": 72.8522
+      },
+      "departureTime": "08:00",
+      "arrivalTime": "09:06",
+      "travelDate": "2026-10-08",
+      "seats": [
+        "1A",
+        "1B"
+      ],
+      "seatCount": 2,
+      "farePerSeat": 20,
+      "totalAmount": 40,
+      "paymentMode": "CASH",
+      "paymentStatus": "PAY_ON_BOARDING",
+      "bookingStatus": "CONFIRMED",
+      "bookedAt": "2026-10-08T19:45:00.000Z"
+    },
+    {
+      "ticketId": "OB8BL59DAY",
+      "transactionId": "TXN_1791472082338_TVX2",
+      "userId": "user_1791469374959",
+      "userName": "Ganesh Fulchand Gupta GUPTA",
+      "userEmail": "gg7974060@gmail.com",
+      "userPhone": "9167098873",
+      "busId": "B207_7",
+      "busNumber": "207",
+      "operator": "BEST",
+      "busType": "Electric",
+      "route": {
+        "from": "Borivali Station",
+        "to": "Versova",
+        "stops": [
+          "Borivali Station",
+          "Kandivali Station",
+          "Malad Station",
+          "Versova"
+        ]
+      },
+      "boardingStop": "Borivali Station",
+      "droppingStop": "Versova",
+      "locationPath": [
+        {
+          "lat": 19.2307,
+          "lng": 72.8567
+        },
+        {
+          "lat": 19.2046,
+          "lng": 72.8468
+        },
+        {
+          "lat": 19.1865,
+          "lng": 72.8486
+        },
+        {
+          "lat": 19.1225,
+          "lng": 72.8111
+        }
+      ],
+      "currentBusLocation": {
+        "lat": 19.1901,
+        "lng": 72.8474
+      },
+      "departureTime": "07:00",
+      "arrivalTime": "07:00",
+      "travelDate": "2026-10-08",
+      "seats": [
+        "2C",
+        "3D",
+        "5D",
+        "5B",
+        "5A"
+      ],
+      "seatCount": 5,
+      "farePerSeat": 22,
+      "totalAmount": 110,
+      "paymentMode": "UPI",
+      "paymentStatus": "PAID",
+      "bookingStatus": "CONFIRMED",
+      "bookedAt": "2026-10-08T15:08:02.369Z"
+    },
+    {
+      "ticketId": "OBFPSW7Z8J",
+      "transactionId": "TXN_1791472967895_AF5U",
+      "userId": "user_1791469374959",
+      "userName": "Ganesh Fulchand Gupta GUPTA",
+      "userEmail": "gg7974060@gmail.com",
+      "userPhone": "9167098873",
+      "busId": "B203_4",
+      "busNumber": "203",
+      "operator": "BEST",
+      "busType": "AC",
+      "route": {
+        "from": "Dahisar",
+        "to": "Andheri Station",
+        "stops": [
+          "Dahisar",
+          "Borivali Station",
+          "Kandivali Station",
+          "Mindspace Malad",
+          "Andheri Station"
+        ]
+      },
+      "boardingStop": "Dahisar",
+      "droppingStop": "Andheri Station",
+      "locationPath": [
+        {
+          "lat": 19.257,
+          "lng": 72.859
+        },
+        {
+          "lat": 19.2307,
+          "lng": 72.8567
+        },
+        {
+          "lat": 19.2046,
+          "lng": 72.8468
+        },
+        {
+          "lat": 19.1783,
+          "lng": 72.834
+        },
+        {
+          "lat": 19.1197,
+          "lng": 72.8466
+        }
+      ],
+      "currentBusLocation": {
+        "lat": 19.1783,
+        "lng": 72.8352
+      },
+      "departureTime": "08:00",
+      "arrivalTime": "08:00",
+      "travelDate": "2026-10-08",
+      "seats": [
+        "2D"
+      ],
+      "seatCount": 1,
+      "farePerSeat": 25,
+      "totalAmount": 25,
+      "paymentMode": "CASH",
+      "paymentStatus": "PAY_ON_BOARDING",
+      "bookingStatus": "CONFIRMED",
+      "bookedAt": "2026-10-08T15:22:47.930Z"
+    }
+  ],
+  "search_history": [
+    {
+      "id": "SCH_001",
+      "userId": "user_demo",
+      "from": "Borivali Station",
+      "to": "Andheri Station",
+      "travelDate": "2026-10-08",
+      "busType": "All",
+      "resultsCount": 26,
+      "searchedAt": "2026-10-08T19:40:00.000Z"
+    }
+  ],
+  "transactions": [
+    {
+      "transactionId": "TXN_20261008_OB87A29B",
+      "ticketId": "OB87A29B",
+      "userId": "user_demo",
+      "amount": 40,
+      "paymentMode": "CASH",
+      "paymentStatus": "PAY_ON_BOARDING",
+      "timestamp": "2026-10-08T19:45:00.000Z",
+      "reference": "CASH_CONDUCTOR_COLLECTION"
+    },
+    {
+      "transactionId": "TXN_1791472082338_TVX2",
+      "ticketId": "OB8BL59DAY",
+      "userId": "user_1791469374959",
+      "amount": 110,
+      "paymentMode": "UPI",
+      "paymentStatus": "PAID",
+      "timestamp": "2026-10-08T15:08:02.369Z",
+      "reference": "PG_MUMBAI_TRANSIT"
+    },
+    {
+      "transactionId": "TXN_1791472967895_AF5U",
+      "ticketId": "OBFPSW7Z8J",
+      "userId": "user_1791469374959",
+      "amount": 25,
+      "paymentMode": "CASH",
+      "paymentStatus": "PAY_ON_BOARDING",
+      "timestamp": "2026-10-08T15:22:47.930Z",
+      "reference": "CASH_CONDUCTOR_COLLECTION"
+    }
+  ],
+  "activity_logs": [
+    {
+      "id": "LOG_001",
+      "userId": "user_demo",
+      "action": "TICKET_BOOKED",
+      "details": "Booked Ticket OB87A29B for Bus 421 with Cash on Boarding payment",
+      "timestamp": "2026-10-08T19:45:00.000Z"
+    },
+    {
+      "id": "LOG_1791472082369",
+      "userId": "user_1791469374959",
+      "action": "TICKET_BOOKED",
+      "details": "Booked 5 seats on Bus 207 (Ticket: OB8BL59DAY, Mode: UPI)",
+      "timestamp": "2026-10-08T15:08:02.369Z"
+    },
+    {
+      "id": "LOG_1791472967930",
+      "userId": "user_1791469374959",
+      "action": "TICKET_BOOKED",
+      "details": "Booked 1 seats on Bus 203 (Ticket: OBFPSW7Z8J, Mode: CASH)",
+      "timestamp": "2026-10-08T15:22:47.930Z"
+    }
+  ]
+}

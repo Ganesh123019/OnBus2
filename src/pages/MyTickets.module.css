@@ -1,0 +1,183 @@
+.ticketsPage {
+  padding: 32px 0 60px;
+}
+
+.header {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 24px;
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.tabActive {
+  background: rgba(0, 201, 255, 0.12);
+  color: var(--accent-blue);
+  border-color: var(--border-accent);
+}
+
+.ticketList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ticketCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  transition: all var(--transition-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.ticketCard:hover {
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-md);
+}
+
+.ticketHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--border-medium);
+  margin-bottom: 16px;
+}
+
+.ticketIdBadge {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  background: rgba(0, 201, 255, 0.1);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ticketBody {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  align-items: center;
+}
+
+@media (min-width: 768px) {
+  .ticketBody {
+    grid-template-columns: 1fr auto auto;
+  }
+}
+
+.routeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.busBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.routeText {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.timeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timeVal {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dateVal {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.seatInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seatPills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.seatPill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.ticketActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.modalConfirm {
+  max-width: 400px;
+  text-align: center;
+}
