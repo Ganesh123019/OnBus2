@@ -15,45 +15,62 @@ OnBus 2.0 is a modern, real-time bus booking and transit telemetry web applicati
   - Tracking is secured and available only for confirmed bookings.
   - Live animated bus positioning, bearing updates, route polylines, and dynamic ETA estimation.
 - **Persistent Data Storage**:
-  - File-backed persistent JSON database recording:
-    - User accounts & credentials
-    - Full ticket booking history with transaction IDs, seats, fare, and route coordinates
-    - Route search history & analytics
-    - Conductor transaction logs & system statistics
+  - MongoDB Atlas or self-hosted MongoDB storing:
+    - Hashed user accounts and profiles
+    - Complete ticket bookings and transactions
+    - Passenger contact details, route, date, and time
+    - Search history and activity logs
+    - Revenue and booking statistics
+  - Unique indexes protect against duplicate users, bookings, and transactions.
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 18, Vite, React Router 6, Tailwind CSS
-- **Mapping & Geolocation**: Google Maps JavaScript API (Custom dark mode, Polyline, Marker animations)
-- **Backend / Storage**: REST API middleware with JSON persistence engine
+- **Frontend**: React 18, Vite, React Router 6
+- **Mapping & Geolocation**: Leaflet and route metadata
+- **Backend / Storage**: MongoDB with the native Node.js driver
+- **Authentication**: bcryptjs password hashing
 - **Build Tool**: Vite 5
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js (v18 or higher recommended)
-- npm or yarn
+- Node.js 18 or newer
+- An active MongoDB deployment
+- npm
+
+### Environment Configuration
+
+Create a `.env` file in the project root:
+
+```env
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@cluster.example.mongodb.net/onbus
+MONGODB_DB_NAME=onbus
+```
+
+Do not commit the `.env` file. Keep the password out of source control and use a MongoDB user with the minimum required permissions.
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Ganesh123019/OnBus2.git
-   cd OnBus2
-   ```
-
-2. Install dependencies:
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-3. Start development server:
+2. Start the development server:
    ```bash
    npm run dev
    ```
 
-4. Open [http://localhost:5173](http://localhost:5173) in your browser.
+3. Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+### Run Tests
+
+```bash
+npm test
+```
+
+The tests use an isolated in-memory MongoDB instance and do not require a cloud database.
 
 ### Production Build
 

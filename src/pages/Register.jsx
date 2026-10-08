@@ -41,15 +41,17 @@ export default function Register() {
     }
 
     setLoading(true)
-    const res = register(name, email, password, phone)
-    setLoading(false)
-
-    if (res.success) {
-      if (toast?.success) toast.success(`Account created! Welcome, ${res.user.name.split(' ')[0]}!`)
-      navigate(redirectPath, { replace: true })
-    } else {
-      setError(res.error || 'Failed to create account')
-    }
+    register(name, email, password, phone)
+      .then((res) => {
+        if (res.success) {
+          if (toast?.success) toast.success(`Account created! Welcome, ${res.user.name.split(' ')[0]}!`)
+          navigate(redirectPath, { replace: true })
+        } else {
+          setError(res.error || 'Failed to create account')
+        }
+      })
+      .catch(() => setError('Registration service is unavailable. Please try again.'))
+      .finally(() => setLoading(false))
   }
 
   return (

@@ -29,15 +29,17 @@ export default function Login() {
     }
 
     setLoading(true)
-    const res = login(email.trim(), password)
-    setLoading(false)
-
-    if (res.success) {
-      if (toast?.success) toast.success(`Welcome back, ${res.user.name.split(' ')[0]}!`)
-      navigate(redirectPath, { replace: true })
-    } else {
-      setError(res.error || 'Failed to sign in')
-    }
+    login(email.trim(), password)
+      .then((res) => {
+        if (res.success) {
+          if (toast?.success) toast.success(`Welcome back, ${res.user.name.split(' ')[0]}!`)
+          navigate(redirectPath, { replace: true })
+        } else {
+          setError(res.error || 'Failed to sign in')
+        }
+      })
+      .catch(() => setError('Authentication service is unavailable. Please try again.'))
+      .finally(() => setLoading(false))
   }
 
   function fillDemo(demoEmail, demoPass) {

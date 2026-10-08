@@ -56,14 +56,14 @@ function busApiPlugin() {
           if (url.pathname === '/api/db/transactions') {
             if (req.method === 'POST') {
               const body = await parseJsonBody(req)
-              const result = dbCreateTransaction(body)
+              const result = await dbCreateTransaction(body)
               res.statusCode = result.success ? 201 : 400
               res.end(JSON.stringify(result))
               return
             }
 
             const userId = url.searchParams.get('userId')
-            const transactions = dbGetTransactions(userId)
+            const transactions = await dbGetTransactions(userId)
             res.end(JSON.stringify({ success: true, count: transactions.length, transactions }))
             return
           }
@@ -71,7 +71,7 @@ function busApiPlugin() {
           if (url.pathname === '/api/db/history') {
             const userId = url.searchParams.get('userId')
             const limit = Number(url.searchParams.get('limit') || 20)
-            const history = dbGetRecentHistory(userId, Number.isFinite(limit) ? limit : 20)
+            const history = await dbGetRecentHistory(userId, Number.isFinite(limit) ? limit : 20)
             res.end(JSON.stringify({ success: true, count: history.length, history }))
             return
           }
@@ -79,12 +79,12 @@ function busApiPlugin() {
           if (url.pathname === '/api/db/bookings') {
             if (req.method === 'POST') {
               const body = await parseJsonBody(req)
-              const result = dbCreateBooking(body)
+              const result = await dbCreateBooking(body)
               res.end(JSON.stringify(result))
               return
             } else {
               const userId = url.searchParams.get('userId')
-              const bookings = userId ? dbGetUserBookings(userId) : dbExportAll().bookings
+              const bookings = userId ? await dbGetUserBookings(userId) : (await dbExportAll()).bookings
               res.end(JSON.stringify({ success: true, count: bookings.length, bookings }))
               return
             }
@@ -95,11 +95,11 @@ function busApiPlugin() {
             if (sub.endsWith('/cancel') && req.method === 'POST') {
               const ticketId = sub.replace('/cancel', '')
               const body = await parseJsonBody(req)
-              const result = dbCancelBooking(ticketId, body.userId)
+              const result = await dbCancelBooking(ticketId, body.userId)
               res.end(JSON.stringify(result))
               return
             } else {
-              const ticket = dbGetBookingByTicketId(sub)
+              const ticket = await dbGetBookingByTicketId(sub)
               if (ticket) {
                 res.end(JSON.stringify({ success: true, booking: ticket }))
               } else {
@@ -113,12 +113,12 @@ function busApiPlugin() {
           if (url.pathname === '/api/db/searches') {
             if (req.method === 'POST') {
               const body = await parseJsonBody(req)
-              const result = dbRecordSearch(body)
+              const result = await dbRecordSearch(body)
               res.end(JSON.stringify(result))
               return
             } else {
               const userId = url.searchParams.get('userId')
-              const searches = dbGetSearchHistory(userId)
+              const searches = await dbGetSearchHistory(userId)
               res.end(JSON.stringify({ success: true, count: searches.length, searches }))
               return
             }
@@ -126,14 +126,14 @@ function busApiPlugin() {
 
           if (url.pathname === '/api/db/users/register' && req.method === 'POST') {
             const body = await parseJsonBody(req)
-            const result = dbRegisterUser(body)
+            const result = await dbRegisterUser(body)
             res.end(JSON.stringify(result))
             return
           }
 
           if (url.pathname === '/api/db/users/login' && req.method === 'POST') {
             const body = await parseJsonBody(req)
-            const result = dbLoginUser(body.identifier || body.email, body.password)
+            const result = await dbLoginUser(body.identifier || body.email, body.password)
             res.end(JSON.stringify(result))
             return
           }

@@ -1,229 +1,253 @@
-// ON BUS V2 — Database Persistence Manager
-// Permanent JSON Database Engine for Users, Bookings, Telemetry, Searches, and Logs
+// ON BUS V2 — MongoDB Persistence Manager
+// Production-grade storage for users, bookings, transactions, searches, and activity logs.
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs'
+import { MongoClient, ObjectId } from 'mongodb'
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'onbus'
 
-function getDbFile() {
-  return process.env.ONBUS_DB_FILE
-    ? path.resolve(process.env.ONBUS_DB_FILE)
-    : path.resolve(__dirname, '../data/database.json');
+let client
+let databasePromise
+
+function getMongoUri() {
+  return process.env.MONGODB_URI || ''
 }
 
-function readDb() {
-  const DB_FILE = getDbFile();
-  try {
-    if (!fs.existsSync(DB_FILE)) {
-      return {
-        version: '2.0.0',
-        users: [],
-        bookings: [],
-        search_history: [],
-        transactions: [],
-        activity_logs: []
-      };
-    }
-    const raw = fs.readFileSync(DB_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('[DB Error] Read failed:', err.message);
-    return { users: [], bookings: [], search_history: [], transactions: [], activity_logs: [] };
+function getClient() {
+  const mongodbUri = getMongoUri()
+  if (!mongodbUri) {
+    throw new Error('MONGODB_URI is not configured')
   }
+
+  if (!client) {
+    client = new MongoClient(mongodbUri, {
+      serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 10
+    })
+  }
+
+  return client
 }
 
-function writeDb(data) {
-  const DB_FILE = getDbFile();
-  try {
-    data.lastUpdated = new Date().toISOString();
-    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error('[DB Error] Write failed:', err.message);
-    return false;
+async function getDb() {
+  if (!databasePromise) {
+    databasePromise = getClient().connect().then(() => getClient().db(MONGODB_DB_NAME))
   }
+
+  return databasePromise
+}
+
+async function ensureIndexes() {
+  const db = await getDb()
+  const users = db.collection('users')
+  const bookings = db.collection('bookings')
+  const transactions = db.collection('transactions')
+  const searches = db.collection('search_history')
+  const activity = db.collection('activity_logs')
+
+  await Promise.all([
+    users.createIndex({ email: 1 }, { unique: true }),
+    users.createIndex({ username: 1 }, { unique: true }),
+    users.createIndex({ phone: 1 }),
+    bookings.createIndex({ userId: 1, bookedAt: -1 }),
+    bookings.createIndex({ ticketId: 1 }, { unique: true }),
+    bookings.createIndex({ busId: 1, travelDate: 1 }),
+    transactions.createIndex({ userId: 1, timestamp: -1 }),
+    transactions.createIndex({ transactionId: 1 }, { unique: true }),
+    transactions.createIndex({ ticketId: 1 }),
+    searches.createIndex({ userId: 1, searchedAt: -1 }),
+    activity.createIndex({ userId: 1, timestamp: -1 })
+  ])
+}
+
+let indexesReady
+export async function connectDatabase() {
+  const db = await getDb()
+  if (!indexesReady) {
+    await ensureIndexes()
+    indexesReady = true
+  }
+  return db
 }
 
 function normalizeText(value) {
-  return typeof value === 'string' ? value.trim() : '';
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizePhone(phone) {
+  return normalizeText(phone).replace(/\D/g, '')
 }
 
 function toMoney(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) && amount >= 0 ? amount : 0;
+  const amount = Number(value)
+  return Number.isFinite(amount) && amount >= 0 ? amount : 0
 }
 
-// User Operations
-export function dbRegisterUser({ username, name, email, phone, password, role = 'passenger' }) {
-  const db = readDb();
-  const normalizedEmail = (email || '').trim().toLowerCase();
-  const normalizedUsername = (username || normalizedEmail.split('@')[0]).trim().toLowerCase();
+function safeUser(user) {
+  if (!user) return null
+  const { password, ...safe } = user
+  return safe
+}
 
-  const existing = db.users.find(u => 
-    u.email.toLowerCase() === normalizedEmail || 
-    (u.username && u.username.toLowerCase() === normalizedUsername)
-  );
+function ensureMongo() {
+  return connectDatabase().catch(error => {
+    throw new Error(`Database connection failed: ${error.message}`)
+  })
+}
+
+function validateEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+export async function dbRegisterUser({ username, name, email, phone, password, role = 'passenger' }) {
+  const cleanName = normalizeText(name)
+  const cleanUsername = normalizeText(username).toLowerCase()
+  const cleanEmail = normalizeText(email).toLowerCase()
+  const cleanPhone = normalizePhone(phone)
+  const cleanPassword = String(password || '').trim()
+
+  if (!cleanName || !cleanEmail || !cleanUsername || !cleanPassword || cleanPhone.length !== 10) {
+    return { success: false, error: 'Name, username, email, 10-digit phone, and password are required' }
+  }
+
+  if (!validateEmail(cleanEmail)) {
+    return { success: false, error: 'A valid email address is required' }
+  }
+
+  if (cleanPassword.length < 8) {
+    return { success: false, error: 'Password must contain at least 8 characters' }
+  }
+
+  const db = await ensureMongo()
+  const users = db.collection('users')
+  const existing = await users.findOne({
+    $or: [{ email: cleanEmail }, { username: cleanUsername }]
+  })
 
   if (existing) {
-    return { success: false, error: 'User with this email or username already exists' };
+    return { success: false, error: 'A user with this email or username already exists' }
   }
 
-  const newUser = {
-    id: 'user_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
-    username: normalizedUsername,
-    name: name.trim(),
-    email: normalizedEmail,
-    phone: (phone || '').trim(),
-    password: password, // In production, hash with bcrypt/argon2
+  const passwordHash = await bcrypt.hash(cleanPassword, 12)
+  const user = {
+    name: cleanName,
+    username: cleanUsername,
+    email: cleanEmail,
+    phone: cleanPhone,
+    password: passwordHash,
     role,
-    createdAt: new Date().toISOString(),
-    lastLogin: new Date().toISOString()
-  };
+    createdAt: new Date(),
+    lastLogin: new Date()
+  }
 
-  db.users.push(newUser);
-
-  db.activity_logs.push({
-    id: 'LOG_' + Date.now(),
-    userId: newUser.id,
+  const result = await users.insertOne(user)
+  const created = { ...user, id: result.insertedId.toString() }
+  await db.collection('activity_logs').insertOne({
+    userId: created.id,
+    type: 'USER',
     action: 'USER_REGISTERED',
-    details: `User ${newUser.name} (${newUser.email}) registered`,
-    timestamp: new Date().toISOString()
-  });
+    details: `User ${cleanName} registered`,
+    timestamp: new Date(),
+    userEmail: cleanEmail,
+    userPhone: cleanPhone
+  })
 
-  writeDb(db);
-  const { password: _, ...safeUser } = newUser;
-  return { success: true, user: safeUser };
+  return { success: true, user: safeUser(created) }
 }
 
-export function dbLoginUser(identifier, password) {
-  const db = readDb();
-  const idStr = (identifier || '').trim().toLowerCase();
+export async function dbLoginUser(identifier, password) {
+  const cleanIdentifier = normalizeText(identifier).toLowerCase()
+  const cleanPassword = String(password || '')
 
-  const user = db.users.find(u =>
-    u.email.toLowerCase() === idStr ||
-    (u.username && u.username.toLowerCase() === idStr)
-  );
-
-  if (!user || user.password !== password) {
-    return { success: false, error: 'Invalid email/username or password' };
+  if (!cleanIdentifier || !cleanPassword) {
+    return { success: false, error: 'Email/username and password are required' }
   }
 
-  user.lastLogin = new Date().toISOString();
-  db.activity_logs.push({
-    id: 'LOG_' + Date.now(),
-    userId: user.id,
+  const db = await ensureMongo()
+  const users = db.collection('users')
+  const user = await users.findOne({
+    $or: [{ email: cleanIdentifier }, { username: cleanIdentifier }]
+  })
+
+  if (!user || !(await bcrypt.compare(cleanPassword, user.password))) {
+    return { success: false, error: 'Invalid email/username or password' }
+  }
+
+  await users.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } })
+  await db.collection('activity_logs').insertOne({
+    userId: user._id.toString(),
+    type: 'USER',
     action: 'USER_LOGIN',
     details: `User ${user.name} logged in`,
-    timestamp: new Date().toISOString()
-  });
+    timestamp: new Date(),
+    userEmail: user.email,
+    userPhone: user.phone
+  })
 
-  writeDb(db);
-  const { password: _, ...safeUser } = user;
-  return { success: true, user: safeUser };
+  return { success: true, user: safeUser({ ...user, id: user._id.toString() }) }
 }
 
-// Booking Operations
-export function dbCreateTransaction(transactionData) {
-  const db = readDb();
-  const transactionId = normalizeText(transactionData.transactionId) || ('TXN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6).toUpperCase());
-  const userId = normalizeText(transactionData.userId);
-  const userEmail = normalizeText(transactionData.userEmail).toLowerCase();
-  const userPhone = normalizeText(transactionData.userPhone);
-  const paymentMode = normalizeText(transactionData.paymentMode).toUpperCase() || 'UPI';
-  const paymentStatus = normalizeText(transactionData.paymentStatus).toUpperCase() || 'PAID';
+export async function dbCreateBooking(bookingData) {
+  const db = await ensureMongo()
+  const ticketId = normalizeText(bookingData.ticketId) || `OB_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+  const transactionId = normalizeText(bookingData.transactionId) || `TXN_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+  const userId = normalizeText(bookingData.userId)
+  const userPhone = normalizePhone(bookingData.userPhone)
+  const userEmail = normalizeText(bookingData.userEmail).toLowerCase()
+  const totalAmount = toMoney(bookingData.totalAmount ?? bookingData.totalFare)
 
-  if (!userId || !userEmail || !userPhone || !transactionData.ticketId) {
-    return { success: false, error: 'User, email, phone number, and ticket ID are required' };
+  if (!userId || !userEmail || userPhone.length !== 10 || !bookingData.busId || !bookingData.route) {
+    return { success: false, error: 'Valid user, email, phone number, bus, and route are required' }
   }
-
-  if (!/^[0-9]{10}$/.test(userPhone)) {
-    return { success: false, error: 'A valid 10-digit phone number is required' };
-  }
-
-  const transaction = {
-    transactionId,
-    ticketId: normalizeText(transactionData.ticketId),
-    userId,
-    userName: normalizeText(transactionData.userName),
-    userEmail,
-    userPhone,
-    amount: toMoney(transactionData.amount),
-    currency: normalizeText(transactionData.currency).toUpperCase() || 'INR',
-    paymentMode,
-    paymentStatus,
-    bookingStatus: normalizeText(transactionData.bookingStatus).toUpperCase() || 'CONFIRMED',
-    tripDate: normalizeText(transactionData.tripDate) || new Date().toISOString().split('T')[0],
-    departureTime: normalizeText(transactionData.departureTime) || '00:00',
-    route: transactionData.route || null,
-    timestamp: new Date().toISOString(),
-    reference: normalizeText(transactionData.paymentReference) || `REF_${Date.now()}`
-  };
-
-  db.transactions.push(transaction);
-  db.activity_logs.push({
-    id: 'LOG_' + Date.now(),
-    userId,
-    type: 'TRANSACTION',
-    action: 'TRANSACTION_RECORDED',
-    details: `Transaction ${transactionId} for ${transaction.ticketId} (${transaction.paymentMode})`,
-    userEmail,
-    userPhone,
-    timestamp: transaction.timestamp
-  });
-
-  writeDb(db);
-  return { success: true, transaction };
-}
-
-export function dbCreateBooking(bookingData) {
-  const db = readDb();
-
-  const ticketId = bookingData.ticketId || ('OB' + Math.random().toString(36).substring(2, 10).toUpperCase());
-  const transactionId = bookingData.transactionId || ('TXN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6).toUpperCase());
 
   const booking = {
     ticketId,
     transactionId,
-    userId: bookingData.userId,
-    userName: bookingData.userName,
-    userEmail: bookingData.userEmail || '',
-    userPhone: bookingData.userPhone || '',
-    busId: bookingData.busId,
-    busNumber: bookingData.busNumber,
-    operator: bookingData.operator || 'BEST',
-    busType: bookingData.busType || 'Standard',
+    userId,
+    userName: normalizeText(bookingData.userName),
+    userEmail,
+    userPhone,
+    busId: normalizeText(bookingData.busId),
+    busNumber: normalizeText(bookingData.busNumber),
+    operator: normalizeText(bookingData.operator) || 'BEST',
+    busType: normalizeText(bookingData.busType) || 'Standard',
     route: bookingData.route,
-    boardingStop: bookingData.boardingStop,
-    droppingStop: bookingData.droppingStop,
-    locationPath: bookingData.locationPath || bookingData.routePath || [],
-    currentBusLocation: bookingData.currentBusLocation || bookingData.currentLocation || null,
-    departureTime: bookingData.departure || bookingData.departureTime,
-    arrivalTime: bookingData.arrival || bookingData.arrivalTime,
-    travelDate: bookingData.date || bookingData.travelDate || new Date().toISOString().split('T')[0],
-    seats: bookingData.seats || [],
-    seatCount: (bookingData.seats || []).length,
-    farePerSeat: bookingData.fare || bookingData.farePerSeat,
-    totalAmount: bookingData.totalAmount || bookingData.totalFare || (bookingData.fare * (bookingData.seats || []).length),
-    paymentMode: bookingData.paymentMode || bookingData.paymentMethod || 'UPI',
+    boardingStop: normalizeText(bookingData.boardingStop),
+    droppingStop: normalizeText(bookingData.droppingStop),
+    locationPath: Array.isArray(bookingData.locationPath) ? bookingData.locationPath : [],
+    currentBusLocation: bookingData.currentBusLocation || null,
+    departureTime: normalizeText(bookingData.departure || bookingData.departureTime),
+    arrivalTime: normalizeText(bookingData.arrival || bookingData.arrivalTime),
+    travelDate: normalizeText(bookingData.date || bookingData.travelDate) || new Date().toISOString().split('T')[0],
+    seats: Array.isArray(bookingData.seats) ? bookingData.seats : [],
+    seatCount: Array.isArray(bookingData.seats) ? bookingData.seats.length : 0,
+    farePerSeat: toMoney(bookingData.fare || bookingData.farePerSeat),
+    totalAmount,
+    paymentMode: normalizeText(bookingData.paymentMode || bookingData.paymentMethod).toUpperCase() || 'UPI',
     paymentStatus: (bookingData.paymentMode === 'CASH' || bookingData.paymentMethod === 'CASH') ? 'PAY_ON_BOARDING' : 'PAID',
     bookingStatus: 'CONFIRMED',
-    bookedAt: new Date().toISOString()
-  };
+    bookedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date()
+  }
 
-  db.bookings.push(booking);
+  const bookings = db.collection('bookings')
+  const transactions = db.collection('transactions')
+  const activity = db.collection('activity_logs')
+
+  const existingBooking = await bookings.findOne({ ticketId })
+  if (existingBooking) {
+    return { success: false, error: 'This ticket ID already exists' }
+  }
 
   const transaction = {
     transactionId,
     ticketId,
-    userId: booking.userId,
+    userId,
     userName: booking.userName,
-    userEmail: booking.userEmail,
-    userPhone: booking.userPhone,
-    amount: booking.totalAmount,
+    userEmail,
+    userPhone,
+    amount: totalAmount,
     currency: 'INR',
     paymentMode: booking.paymentMode,
     paymentStatus: booking.paymentStatus,
@@ -231,141 +255,234 @@ export function dbCreateBooking(bookingData) {
     tripDate: booking.travelDate,
     departureTime: booking.departureTime,
     route: booking.route,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(),
     reference: booking.paymentMode === 'CASH' ? 'CASH_CONDUCTOR_COLLECTION' : 'PG_MUMBAI_TRANSIT'
-  };
+  }
 
-  db.transactions.push(transaction);
-  db.activity_logs.push({
-    id: 'LOG_' + Date.now(),
-    userId: booking.userId,
+  await bookings.insertOne(booking)
+  await transactions.insertOne(transaction)
+  await activity.insertOne({
+    userId,
+    type: 'TRANSACTION',
     action: 'TICKET_BOOKED',
-    details: `Booked ${booking.seatCount} seats on Bus ${booking.busNumber} (Ticket: ${ticketId}, Mode: ${booking.paymentMode})`,
-    timestamp: new Date().toISOString()
-  });
+    details: `Booked ${booking.seatCount} seats on Bus ${booking.busNumber} (Ticket: ${ticketId})`,
+    timestamp: new Date(),
+    userEmail,
+    userPhone,
+    ticketId,
+    transactionId
+  })
 
-  writeDb(db);
-  return { success: true, booking, transaction };
+  return { success: true, booking, transaction }
 }
 
-export function dbGetUserBookings(userId) {
-  const db = readDb();
-  return db.bookings
-    .filter(b => b.userId === userId)
-    .sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt));
-}
+export async function dbCreateTransaction(transactionData) {
+  const db = await ensureMongo()
+  const transactionId = normalizeText(transactionData.transactionId) || `TXN_${Date.now()}_${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+  const phone = normalizePhone(transactionData.userPhone)
+  const email = normalizeText(transactionData.userEmail).toLowerCase()
+  const userId = normalizeText(transactionData.userId)
 
-export function dbGetBookingByTicketId(ticketId) {
-  const db = readDb();
-  return db.bookings.find(b => b.ticketId === ticketId) || null;
-}
+  if (!userId || !email || phone.length !== 10 || !transactionData.ticketId) {
+    return { success: false, error: 'User, email, phone, and ticket ID are required' }
+  }
 
-export function dbCancelBooking(ticketId, userId) {
-  const db = readDb();
-  const booking = db.bookings.find(b => b.ticketId === ticketId && b.userId === userId);
-  if (!booking) return { success: false, error: 'Booking not found' };
-  if (booking.bookingStatus === 'CANCELLED') return { success: false, error: 'Already cancelled' };
-
-  booking.bookingStatus = 'CANCELLED';
-  booking.cancelledAt = new Date().toISOString();
-
-  db.activity_logs.push({
-    id: 'LOG_' + Date.now(),
+  const transaction = {
+    transactionId,
+    ticketId: normalizeText(transactionData.ticketId),
     userId,
+    userName: normalizeText(transactionData.userName),
+    userEmail: email,
+    userPhone: phone,
+    amount: toMoney(transactionData.amount),
+    currency: normalizeText(transactionData.currency).toUpperCase() || 'INR',
+    paymentMode: normalizeText(transactionData.paymentMode).toUpperCase() || 'UPI',
+    paymentStatus: normalizeText(transactionData.paymentStatus).toUpperCase() || 'PAID',
+    bookingStatus: normalizeText(transactionData.bookingStatus).toUpperCase() || 'CONFIRMED',
+    tripDate: normalizeText(transactionData.tripDate) || new Date().toISOString().split('T')[0],
+    departureTime: normalizeText(transactionData.departureTime) || '00:00',
+    route: transactionData.route || null,
+    timestamp: new Date(),
+    reference: normalizeText(transactionData.paymentReference) || `REF_${Date.now()}`,
+    createdAt: new Date()
+  }
+
+  await db.collection('transactions').insertOne(transaction)
+  await db.collection('activity_logs').insertOne({
+    userId,
+    type: 'TRANSACTION',
+    action: 'TRANSACTION_RECORDED',
+    details: `Transaction ${transactionId} for ticket ${transaction.ticketId}`,
+    timestamp: transaction.timestamp,
+    userEmail: email,
+    userPhone: phone,
+    ticketId: transaction.ticketId,
+    transactionId
+  })
+
+  return { success: true, transaction }
+}
+
+export async function dbGetUserBookings(userId) {
+  const db = await ensureMongo()
+  return db.collection('bookings')
+    .find({ userId })
+    .sort({ bookedAt: -1 })
+    .toArray()
+}
+
+export async function dbGetBookingByTicketId(ticketId) {
+  const db = await ensureMongo()
+  return db.collection('bookings').findOne({ ticketId })
+}
+
+export async function dbCancelBooking(ticketId, userId) {
+  const db = await ensureMongo()
+  const booking = await db.collection('bookings').findOne({ ticketId, userId })
+  if (!booking) return { success: false, error: 'Booking not found' }
+  if (booking.bookingStatus === 'CANCELLED') return { success: false, error: 'Already cancelled' }
+
+  const cancelledAt = new Date()
+  const result = await db.collection('bookings').updateOne(
+    { ticketId, userId },
+    { $set: { bookingStatus: 'CANCELLED', cancelledAt, updatedAt: cancelledAt } }
+  )
+
+  if (result.modifiedCount !== 1) {
+    return { success: false, error: 'Cancellation failed' }
+  }
+
+  await db.collection('activity_logs').insertOne({
+    userId,
+    type: 'BOOKING',
     action: 'TICKET_CANCELLED',
-    details: `Cancelled Ticket ${ticketId}`,
-    timestamp: new Date().toISOString()
-  });
+    details: `Cancelled ticket ${ticketId}`,
+    timestamp: cancelledAt
+  })
 
-  writeDb(db);
-  return { success: true, booking };
+  return { success: true, booking: { ...booking, bookingStatus: 'CANCELLED', cancelledAt } }
 }
 
-// Search History Operations
-export function dbRecordSearch({ userId = 'guest', from = '', to = '', travelDate = '', busType = 'All', resultsCount = 0 }) {
-  const db = readDb();
-  const searchEntry = {
-    id: 'SCH_' + Date.now(),
+export async function dbRecordSearch({ userId = 'guest', from = '', to = '', travelDate = '', busType = 'All', resultsCount = 0 }) {
+  const db = await ensureMongo()
+  const search = {
     userId,
-    from,
-    to,
-    travelDate,
-    busType,
-    resultsCount,
-    searchedAt: new Date().toISOString()
-  };
-
-  db.search_history.unshift(searchEntry);
-  if (db.search_history.length > 200) {
-    db.search_history = db.search_history.slice(0, 200);
+    from: normalizeText(from),
+    to: normalizeText(to),
+    travelDate: normalizeText(travelDate),
+    busType: normalizeText(busType) || 'All',
+    resultsCount: Number(resultsCount) || 0,
+    searchedAt: new Date()
   }
-
-  writeDb(db);
-  return { success: true, search: searchEntry };
+  const result = await db.collection('search_history').insertOne(search)
+  return { success: true, search: { ...search, id: result.insertedId.toString() } }
 }
 
-export function dbGetSearchHistory(userId = null) {
-  const db = readDb();
-  if (userId) {
-    return db.search_history.filter(s => s.userId === userId).slice(0, 15);
-  }
-  return db.search_history.slice(0, 15);
+export async function dbGetSearchHistory(userId = null, limit = 15) {
+  const db = await ensureMongo()
+  const query = userId ? { userId } : {}
+  const results = await db.collection('search_history')
+    .find(query)
+    .sort({ searchedAt: -1 })
+    .limit(Math.min(Number(limit) || 15, 100))
+    .toArray()
+
+  return results.map(item => ({ ...item, id: item._id.toString() }))
 }
 
-// Analytics and Full Export
-export function dbGetTransactions(userId = null) {
-  const db = readDb();
-  const transactions = userId
-    ? db.transactions.filter(t => t.userId === userId)
-    : db.transactions;
-  return transactions.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+export async function dbGetTransactions(userId = null) {
+  const db = await ensureMongo()
+  const query = userId ? { userId } : {}
+  return db.collection('transactions')
+    .find(query)
+    .sort({ timestamp: -1 })
+    .toArray()
 }
 
-export function dbGetTransactionById(transactionId) {
-  const db = readDb();
-  return db.transactions.find(t => t.transactionId === transactionId) || null;
+export async function dbGetTransactionById(transactionId) {
+  const db = await ensureMongo()
+  return db.collection('transactions').findOne({ transactionId })
 }
 
-export function dbGetRecentHistory(userId = null, limit = 20) {
-  const db = readDb();
-  const items = db.activity_logs
-    .filter(entry => !userId || entry.userId === userId)
-    .slice()
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    .slice(0, limit);
+export async function dbGetRecentHistory(userId = null, limit = 20) {
+  const db = await ensureMongo()
+  const query = userId ? { userId } : {}
+  const results = await db.collection('activity_logs')
+    .find(query)
+    .sort({ timestamp: -1 })
+    .limit(Math.min(Number(limit) || 20, 100))
+    .toArray()
 
-  return items.map(entry => ({
-    ...entry,
-    type: entry.type || 'ACTIVITY',
-    userId: entry.userId || userId || 'guest',
-    userPhone: entry.userPhone || '',
-    userEmail: entry.userEmail || ''
-  }));
+  return results.map(item => ({
+    ...item,
+    id: item._id.toString(),
+    type: item.type || 'ACTIVITY',
+    userPhone: item.userPhone || '',
+    userEmail: item.userEmail || ''
+  }))
 }
 
-export function dbGetStats() {
-  const db = readDb();
-  const totalRevenue = db.transactions
-    .filter(t => t.paymentStatus === 'PAID')
-    .reduce((sum, t) => sum + (t.amount || 0), 0);
+export async function dbGetStats() {
+  const db = await ensureMongo()
+  const [users, bookings, searches, transactions, activityLogs] = await Promise.all([
+    db.collection('users').countDocuments(),
+    db.collection('bookings').countDocuments(),
+    db.collection('search_history').countDocuments(),
+    db.collection('transactions').countDocuments(),
+    db.collection('activity_logs').find().sort({ timestamp: -1 }).limit(10).toArray()
+  ])
 
-  const pendingCashRevenue = db.transactions
-    .filter(t => t.paymentStatus === 'PAY_ON_BOARDING')
-    .reduce((sum, t) => sum + (t.amount || 0), 0);
+  const revenue = await db.collection('transactions').aggregate([
+    { $match: { paymentStatus: 'PAID' } },
+    { $group: { _id: null, total: { $sum: '$amount' } } }
+  ]).toArray()
+
+  const pendingRevenue = await db.collection('transactions').aggregate([
+    { $match: { paymentStatus: 'PAY_ON_BOARDING' } },
+    { $group: { _id: null, total: { $sum: '$amount' } } }
+  ]).toArray()
+
+  const confirmedBookings = await db.collection('bookings').countDocuments({ bookingStatus: 'CONFIRMED' })
+  const cancelledBookings = await db.collection('bookings').countDocuments({ bookingStatus: 'CANCELLED' })
 
   return {
-    totalUsers: db.users.length,
-    totalBookings: db.bookings.length,
-    confirmedBookings: db.bookings.filter(b => b.bookingStatus === 'CONFIRMED').length,
-    cancelledBookings: db.bookings.filter(b => b.bookingStatus === 'CANCELLED').length,
-    totalSearches: db.search_history.length,
-    totalRevenue,
-    pendingCashRevenue,
-    totalTransactions: db.transactions.length,
-    recentLogs: db.activity_logs.slice(-10).reverse()
-  };
+    totalUsers: users,
+    totalBookings: bookings,
+    confirmedBookings,
+    cancelledBookings,
+    totalSearches: searches,
+    totalRevenue: revenue[0]?.total || 0,
+    pendingCashRevenue: pendingRevenue[0]?.total || 0,
+    totalTransactions: transactions,
+    recentLogs: activityLogs.map(log => ({ ...log, id: log._id.toString() }))
+  }
 }
 
-export function dbExportAll() {
-  return readDb();
+export async function dbExportAll() {
+  const db = await ensureMongo()
+  const [users, bookings, searches, transactions, activityLogs] = await Promise.all([
+    db.collection('users').find().toArray(),
+    db.collection('bookings').find().toArray(),
+    db.collection('search_history').find().toArray(),
+    db.collection('transactions').find().toArray(),
+    db.collection('activity_logs').find().toArray()
+  ])
+  return { users, bookings, search_history: searches, transactions, activity_logs: activityLogs }
+}
+
+export async function closeDatabase() {
+  if (client) {
+    await client.close()
+    client = null
+    databasePromise = null
+    indexesReady = null
+  }
+}
+
+export function dbIsConfigured() {
+  return Boolean(getMongoUri())
+}
+
+export function dbObjectId(value) {
+  return ObjectId.isValid(value) ? new ObjectId(value) : null
 }
