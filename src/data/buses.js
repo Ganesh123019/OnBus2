@@ -19527,24 +19527,6 @@ export function BUS_TYPE_FROM_ID(id) {
   return 'BEST'
 }
 
-// Get booked seats count for a bus from localStorage
-export function getBookedSeats(busId) {
-  try {
-    const bookings = JSON.parse(localStorage.getItem('onbus_bookings') || '[]')
-    return bookings
-      .filter(b => b.busId === busId && b.status !== 'CANCELLED')
-      .flatMap(b => b.seats)
-  } catch {
-    return []
-  }
-}
-
-// Get available seat count for a bus at a given time
-export function getAvailableSeats(bus, departureTime) {
-  if (!bus) return 0
-  const booked = getBookedSeats(bus.id)
-  return Math.max(0, bus.totalSeats - booked.length)
-}
 
 // Search buses by route
 export function searchBuses(from, to, date) {
@@ -19570,8 +19552,7 @@ export function getAppStats() {
 }
 
 // Generate seat layout for booking
-export function generateSeatLayout(bus) {
-  const bookedSeats = getBookedSeats(bus.id)
+export function generateSeatLayout(bus, bookedSeats = []) {
   const seats = []
   const rows = Math.ceil(bus.totalSeats / 4)
 

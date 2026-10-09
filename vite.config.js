@@ -1,7 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import register from './api/register.js'
+import login from './api/login.js'
+import bookings from './api/bookings.js'
+import session from './api/session.js'
 import { BUSES, MUMBAI_STOPS, getAppStats, searchBuses } from './src/data/buses.js'
 import {
+  connectDatabase,
   dbRegisterUser,
   dbLoginUser,
   dbCreateBooking,
@@ -36,8 +41,33 @@ function busApiPlugin() {
   return {
     name: 'bus-api-endpoints',
     configureServer(server) {
+      connectDatabase().catch(err => {
+        console.warn('Initial database connection notice:', err.message)
+      })
+
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, 'http://localhost:5173')
+        const routeHandlers = {
+          '/api/register': register,
+          '/api/login': login,
+          '/api/bookings': bookings,
+          '/api/session': session
+        }
+        const handler = routeHandlers[url.pathname]
+        if (handler) {
+          try {
+            await handler(req, res)
+          } catch (err) {
+            console.error('Error handling route:', url.pathname, err)
+            if (!res.headersSent) {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ success: false, error: err.message || 'Internal server error' }))
+            }
+          }
+          return
+        }
+
         if (url.pathname.startsWith('/api/')) {
           res.setHeader('Content-Type', 'application/json')
           res.setHeader('Access-Control-Allow-Origin', '*')

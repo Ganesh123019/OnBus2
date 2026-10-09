@@ -1,6 +1,7 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { BUSES, getAvailableSeats } from '../data/buses'
+import { BUSES } from '../data/buses'
 import { useAuth } from '../hooks/useAuth'
+import { useAvailableSeats } from '../hooks/useAvailableSeats'
 import StatusBadge from '../components/StatusBadge'
 
 export default function BusDetails() {
@@ -23,7 +24,7 @@ export default function BusDetails() {
     )
   }
 
-  const availableSeats = getAvailableSeats(bus)
+  const availableSeats = useAvailableSeats(bus)
   const isFull = availableSeats <= 0
   const isBookable = !isFull && bus.status !== 'CANCELLED' && bus.status !== 'DEPARTED'
 

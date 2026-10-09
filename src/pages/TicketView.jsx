@@ -8,10 +8,14 @@ import styles from './TicketView.module.css'
 export default function TicketView() {
   const { ticketId } = useParams()
   const navigate = useNavigate()
-  const { getBookingById } = useBooking()
+  const { getBookingById, loading } = useBooking()
   const toast = useToastCtx()
 
   const ticket = getBookingById(ticketId)
+
+  if (loading) {
+    return <div className="container" style={{ padding: '60px 0' }} aria-busy="true" />
+  }
 
   if (!ticket) {
     return (

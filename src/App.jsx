@@ -12,7 +12,8 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 
 function ProtectedRoute({ children }) {
-  const { isLoggedIn } = useAuth()
+  const { isLoggedIn, loading } = useAuth()
+  if (loading) return children
   return isLoggedIn ? children : <Navigate to="/login" replace />
 }
 

@@ -2,72 +2,15 @@
 // Production-grade storage for users, bookings, transactions, searches, and activity logs.
 
 import bcrypt from 'bcryptjs'
-import { MongoClient, ObjectId } from 'mongodb'
+import { ObjectId } from 'mongodb'
+import { connectDatabase, closeDatabase, getMongoUri } from '../../api/lib/mongodb.js'
 
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'onbus'
+export { connectDatabase, closeDatabase }
 
-let client
-let databasePromise
-
-function getMongoUri() {
-  return process.env.MONGODB_URI || ''
-}
-
-function getClient() {
-  const mongodbUri = getMongoUri()
-  if (!mongodbUri) {
-    throw new Error('MONGODB_URI is not configured')
-  }
-
-  if (!client) {
-    client = new MongoClient(mongodbUri, {
-      serverSelectionTimeoutMS: 5000,
-      maxPoolSize: 10
-    })
-  }
-
-  return client
-}
-
-async function getDb() {
-  if (!databasePromise) {
-    databasePromise = getClient().connect().then(() => getClient().db(MONGODB_DB_NAME))
-  }
-
-  return databasePromise
-}
-
-async function ensureIndexes() {
-  const db = await getDb()
-  const users = db.collection('users')
-  const bookings = db.collection('bookings')
-  const transactions = db.collection('transactions')
-  const searches = db.collection('search_history')
-  const activity = db.collection('activity_logs')
-
-  await Promise.all([
-    users.createIndex({ email: 1 }, { unique: true }),
-    users.createIndex({ username: 1 }, { unique: true }),
-    users.createIndex({ phone: 1 }),
-    bookings.createIndex({ userId: 1, bookedAt: -1 }),
-    bookings.createIndex({ ticketId: 1 }, { unique: true }),
-    bookings.createIndex({ busId: 1, travelDate: 1 }),
-    transactions.createIndex({ userId: 1, timestamp: -1 }),
-    transactions.createIndex({ transactionId: 1 }, { unique: true }),
-    transactions.createIndex({ ticketId: 1 }),
-    searches.createIndex({ userId: 1, searchedAt: -1 }),
-    activity.createIndex({ userId: 1, timestamp: -1 })
-  ])
-}
-
-let indexesReady
-export async function connectDatabase() {
-  const db = await getDb()
-  if (!indexesReady) {
-    await ensureIndexes()
-    indexesReady = true
-  }
-  return db
+async function ensureMongo() {
+  return connectDatabase().catch(error => {
+    throw new Error(`Database connection failed: ${error.message}`)
+  })
 }
 
 function normalizeText(value) {
@@ -85,37 +28,38 @@ function toMoney(value) {
 
 function safeUser(user) {
   if (!user) return null
-  const { password, ...safe } = user
-  return safe
-}
-
-function ensureMongo() {
-  return connectDatabase().catch(error => {
-    throw new Error(`Database connection failed: ${error.message}`)
-  })
+  const { password, passwordHash, ...safe } = user
+  return {
+    ...safe,
+    id: (user._id || user.id || '').toString()
+  }
 }
 
 function validateEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-export async function dbRegisterUser({ username, name, email, phone, password, role = 'passenger' }) {
+export async function dbRegisterUser({ username, name, email, phone = '', password, role = 'passenger' }) {
   const cleanName = normalizeText(name)
   const cleanUsername = normalizeText(username).toLowerCase()
   const cleanEmail = normalizeText(email).toLowerCase()
   const cleanPhone = normalizePhone(phone)
   const cleanPassword = String(password || '').trim()
 
-  if (!cleanName || !cleanEmail || !cleanUsername || !cleanPassword || cleanPhone.length !== 10) {
-    return { success: false, error: 'Name, username, email, 10-digit phone, and password are required' }
+  if (!cleanName || !cleanEmail || !cleanUsername || !cleanPassword) {
+    return { success: false, error: 'Name, username, email, and password are required' }
+  }
+
+  if (cleanPhone && cleanPhone.length !== 10) {
+    return { success: false, error: 'Phone number must contain 10 digits' }
   }
 
   if (!validateEmail(cleanEmail)) {
     return { success: false, error: 'A valid email address is required' }
   }
 
-  if (cleanPassword.length < 8) {
-    return { success: false, error: 'Password must contain at least 8 characters' }
+  if (cleanPassword.length < 6) {
+    return { success: false, error: 'Password must contain at least 6 characters' }
   }
 
   const db = await ensureMongo()
@@ -135,6 +79,7 @@ export async function dbRegisterUser({ username, name, email, phone, password, r
     email: cleanEmail,
     phone: cleanPhone,
     password: passwordHash,
+    passwordHash: passwordHash,
     role,
     createdAt: new Date(),
     lastLogin: new Date()
@@ -150,7 +95,7 @@ export async function dbRegisterUser({ username, name, email, phone, password, r
     timestamp: new Date(),
     userEmail: cleanEmail,
     userPhone: cleanPhone
-  })
+  }).catch(() => {})
 
   return { success: true, user: safeUser(created) }
 }
@@ -169,22 +114,22 @@ export async function dbLoginUser(identifier, password) {
     $or: [{ email: cleanIdentifier }, { username: cleanIdentifier }]
   })
 
-  if (!user || !(await bcrypt.compare(cleanPassword, user.password))) {
+  if (!user || !(await bcrypt.compare(cleanPassword, user.passwordHash || user.password || ''))) {
     return { success: false, error: 'Invalid email/username or password' }
   }
 
   await users.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } })
   await db.collection('activity_logs').insertOne({
-    userId: user._id.toString(),
+    userId: (user._id || user.id).toString(),
     type: 'USER',
     action: 'USER_LOGIN',
     details: `User ${user.name} logged in`,
     timestamp: new Date(),
     userEmail: user.email,
     userPhone: user.phone
-  })
+  }).catch(() => {})
 
-  return { success: true, user: safeUser({ ...user, id: user._id.toString() }) }
+  return { success: true, user: safeUser({ ...user, id: (user._id || user.id).toString() }) }
 }
 
 export async function dbCreateBooking(bookingData) {
@@ -470,17 +415,8 @@ export async function dbExportAll() {
   return { users, bookings, search_history: searches, transactions, activity_logs: activityLogs }
 }
 
-export async function closeDatabase() {
-  if (client) {
-    await client.close()
-    client = null
-    databasePromise = null
-    indexesReady = null
-  }
-}
-
 export function dbIsConfigured() {
-  return Boolean(getMongoUri())
+  return true
 }
 
 export function dbObjectId(value) {

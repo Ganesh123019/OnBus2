@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom'
-import { getAvailableSeats } from '../data/buses'
+import { useAvailableSeats } from '../hooks/useAvailableSeats'
 import StatusBadge from './StatusBadge'
 
 export default function BusCard({ bus, showBook = true, compact = false }) {
-  const availableSeats = getAvailableSeats(bus)
+  const availableSeats = useAvailableSeats(bus)
   const nextTrip = bus.schedule.find(s => {
     const [h, m] = s.departure.split(':').map(Number)
     const now = new Date()

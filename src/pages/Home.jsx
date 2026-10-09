@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BUSES, getAppStats, getAvailableSeats } from '../data/buses'
+import { BUSES, getAppStats } from '../data/buses'
 import BusCard from '../components/BusCard'
 import StatusBadge from '../components/StatusBadge'
+import { useAvailableSeats } from '../hooks/useAvailableSeats'
 import styles from './Home.module.css'
 
 function StatCard({ value, label, icon, accent }) {
@@ -18,7 +19,7 @@ function StatCard({ value, label, icon, accent }) {
 }
 
 function LiveBusRow({ bus }) {
-  const seats = getAvailableSeats(bus)
+  const seats = useAvailableSeats(bus)
   return (
     <Link to={`/bus/${bus.id}`} className={styles.liveRow}>
       <div className={styles.liveRowLeft}>

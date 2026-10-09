@@ -69,13 +69,13 @@ export default function LiveMap() {
       // 1. Try to load ticket by ticketId
       if (ticketIdParam) {
         try {
-          const res = await fetch(`/api/db/bookings/${ticketIdParam}`)
+          const res = await fetch(`/api/bookings?ticketId=${encodeURIComponent(ticketIdParam)}`)
           if (res.ok) {
             const data = await res.json()
             if (data.booking) foundTicket = data.booking
           }
-        } catch {
-          // Fallback to local booking hook
+        } catch (error) {
+          console.error('Ticket lookup failed:', error)
         }
         if (!foundTicket) {
           foundTicket = getBookingById(ticketIdParam)
@@ -570,5 +570,4 @@ export default function LiveMap() {
     </div>
   )
 }
-
 

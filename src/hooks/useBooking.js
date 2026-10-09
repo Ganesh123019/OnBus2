@@ -1,36 +1,81 @@
 // ON BUS V2 — Booking Hook
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from './useAuth'
 
-const BOOKINGS_KEY = 'onbus_bookings'
-
-function generateTicketId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let id = 'OB'
-  for (let i = 0; i < 8; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)]
-  }
-  return id
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' }
+  try {
+    const token = localStorage.getItem('onbus_token')
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  } catch {}
+  return headers
 }
 
 export function useBooking() {
-  const getBookings = useCallback(() => {
-    try {
-      return JSON.parse(localStorage.getItem(BOOKINGS_KEY) || '[]')
-    } catch {
+  const { user, loading: authLoading } = useAuth()
+  const [bookings, setBookings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const refreshBookings = useCallback(async () => {
+    if (!user) {
+      setBookings([])
+      setError('')
       return []
     }
-  }, [])
+    try {
+      const response = await fetch('/api/bookings', { headers: getAuthHeaders() })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to load your bookings')
+      }
+      const userBookings = result.bookings || []
+      setBookings(userBookings)
+      setError('')
+      return userBookings
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load your bookings')
+      throw loadError
+    }
+  }, [user])
+
+  useEffect(() => {
+    let active = true
+    if (authLoading) return () => { active = false }
+
+    setLoading(true)
+    refreshBookings()
+      .catch(error => {
+        console.error('Booking list load failed:', error)
+        if (active) setBookings([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => { active = false }
+  }, [authLoading, refreshBookings])
+
+  const getBookings = useCallback(() => bookings, [bookings])
 
   const getUserBookings = useCallback((userId) => {
-    const all = getBookings()
-    return all.filter(b => b.userId === userId)
-      .sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt))
-  }, [getBookings])
+    if (!user || (userId && user.id !== userId)) return []
+    return [...bookings].sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt))
+  }, [bookings, user])
 
   const getBookingById = useCallback((ticketId) => {
-    const all = getBookings()
-    return all.find(b => b.ticketId === ticketId) || null
-  }, [getBookings])
+    return bookings.find(booking => booking.ticketId === ticketId) || null
+  }, [bookings])
+
+  const getBookedSeats = useCallback(async (busId, date, departure) => {
+    const params = new URLSearchParams({ busId, date, departure })
+    const response = await fetch(`/api/bookings?${params.toString()}`)
+    const result = await response.json()
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Unable to check seat availability')
+    }
+    return result.seats || []
+  }, [])
 
   const createBooking = useCallback(async ({
     userId,
@@ -48,26 +93,19 @@ export function useBooking() {
     paymentMethod = 'UPI'
   }) => {
     try {
-      const bookings = getBookings()
-
-      // Check seat availability
-      const existing = bookings.filter(b => b.busId === busId && b.status !== 'CANCELLED' && b.departure === departure)
-      const takenSeats = existing.flatMap(b => b.seats)
-      const conflict = seats.filter(s => takenSeats.includes(s))
-      if (conflict.length > 0) {
-        return { success: false, error: `Seats ${conflict.join(', ')} are already booked` }
-      }
-
-      const ticketId = generateTicketId()
+      const ticketId = `OB${Array.from({ length: 8 }, () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        return chars[Math.floor(Math.random() * chars.length)]
+      }).join('')}`
       const transactionId = `TXN_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`
 
       const booking = {
         ticketId,
         transactionId,
-        userId,
-        userName,
-        userEmail,
-        userPhone,
+        userId: userId || user?.id,
+        userName: userName || user?.name,
+        userEmail: userEmail || user?.email,
+        userPhone: userPhone || user?.phone,
         busId,
         busNumber: bus.number,
         operator: bus.operator || 'BEST',
@@ -80,55 +118,62 @@ export function useBooking() {
         departure,
         arrival: departure,
         date: date || new Date().toISOString().split('T')[0],
-        fare: fare,
+        fare,
         totalFare: fare * seats.length,
         status: 'CONFIRMED',
-        paymentMethod: paymentMethod,
+        paymentMethod,
         paymentStatus: paymentMethod === 'CASH' ? 'PAY_ON_BOARDING' : 'PAID',
         busType: bus.busType,
         bookedAt: new Date().toISOString()
       }
 
-      const response = await fetch('/api/db/bookings', {
+      const response = await fetch('/api/bookings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(booking)
       })
-
       const result = await response.json()
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Database booking failed')
+        throw new Error(result.error || 'Booking could not be saved')
       }
 
-      bookings.push(booking)
-      localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings))
-
+      setBookings(current => [result.booking, ...current.filter(item => item.ticketId !== result.booking.ticketId)])
       return { success: true, booking: result.booking }
-    } catch (err) {
-      return { success: false, error: err.message || 'Booking failed. Please try again.' }
+    } catch (error) {
+      return { success: false, error: error.message || 'Booking failed. Please try again.' }
     }
-  }, [getBookings])
+  }, [user])
 
-  const cancelBooking = useCallback((ticketId, userId) => {
+  const cancelBooking = useCallback(async (ticketId, userId) => {
+    if (!user || user.id !== userId) return { success: false, error: 'Booking not found' }
     try {
-      const bookings = getBookings()
-      const idx = bookings.findIndex(b => b.ticketId === ticketId && b.userId === userId)
-      if (idx === -1) return { success: false, error: 'Booking not found' }
-      if (bookings[idx].status === 'CANCELLED') return { success: false, error: 'Already cancelled' }
-
-      bookings[idx].status = 'CANCELLED'
-      bookings[idx].cancelledAt = new Date().toISOString()
-      localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings))
+      const response = await fetch(`/api/bookings?ticketId=${encodeURIComponent(ticketId)}`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ action: 'cancel' })
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        return { success: false, error: result.error || 'Cancellation failed' }
+      }
+      setBookings(current => current.map(item =>
+        item.ticketId === ticketId ? result.booking : item
+      ))
       return { success: true }
-    } catch {
-      return { success: false, error: 'Cancellation failed' }
+    } catch (error) {
+      return { success: false, error: error.message || 'Cancellation failed' }
     }
-  }, [getBookings])
+  }, [user])
 
   return {
+    bookings,
+    loading: authLoading || loading,
+    error,
     getBookings,
     getUserBookings,
     getBookingById,
+    getBookedSeats,
+    refreshBookings,
     createBooking,
     cancelBooking
   }

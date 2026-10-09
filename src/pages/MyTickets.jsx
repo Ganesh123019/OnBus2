@@ -8,7 +8,7 @@ import styles from './MyTickets.module.css'
 
 export default function MyTickets() {
   const { user } = useAuth()
-  const { getUserBookings, cancelBooking } = useBooking()
+  const { getUserBookings, cancelBooking, error: bookingsError, loading: bookingsLoading } = useBooking()
   const toast = useToastCtx()
   const navigate = useNavigate()
 
@@ -39,8 +39,8 @@ export default function MyTickets() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  function handleCancelTicket(ticketId) {
-    const res = cancelBooking(ticketId, user.id)
+  async function handleCancelTicket(ticketId) {
+    const res = await cancelBooking(ticketId, user.id)
     if (res.success) {
       if (toast?.success) toast.success('Ticket cancelled successfully')
       setCancellingTicketId(null)
@@ -84,7 +84,16 @@ export default function MyTickets() {
         </div>
 
         {/* Empty State */}
-        {filteredTickets.length === 0 ? (
+        {bookingsError ? (
+          <div className="card" role="alert" style={{ padding: '40px 20px', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>Tickets unavailable</h2>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{bookingsError}</p>
+          </div>
+        ) : bookingsLoading ? (
+          <div className="card" style={{ padding: '60px 20px', textAlign: 'center' }} aria-busy="true">
+            Loading your tickets…
+          </div>
+        ) : filteredTickets.length === 0 ? (
           <div className="card" style={{ padding: '60px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎫</div>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>

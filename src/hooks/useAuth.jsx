@@ -1,49 +1,92 @@
 // ON BUS V2 — Centralized Authentication Context & Hook
-import { createContext, useContext, useState, useCallback } from 'react'
-
-const STORAGE_KEY = 'onbus_user'
-
-function getStoredActiveUser() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? JSON.parse(stored) : null
-  } catch {
-    return null
-  }
-}
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 
 export const AuthContext = createContext(null)
 
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' }
+  try {
+    const token = localStorage.getItem('onbus_token')
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  } catch {}
+  return headers
+}
+
+async function readResponse(response, fallbackMessage) {
+  let result
+  try {
+    result = await response.json()
+  } catch {
+    throw new Error(fallbackMessage)
+  }
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || fallbackMessage)
+  }
+  return result
+}
+
 export function AuthProvider({ children }) {
-  // Synchronous initialization prevents flash of unauthenticated state
-  const [user, setUser] = useState(getStoredActiveUser)
-  const [loading, setLoading] = useState(false)
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('onbus_user')
+      return stored ? JSON.parse(stored) : null
+    } catch {
+      return null
+    }
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/session', { headers: getAuthHeaders() })
+      .then(response => readResponse(response, 'Unable to restore your session'))
+      .then(result => {
+        if (active) {
+          setUser(result.user || null)
+          if (result.user) {
+            try { localStorage.setItem('onbus_user', JSON.stringify(result.user)) } catch {}
+          } else {
+            try {
+              localStorage.removeItem('onbus_user')
+              localStorage.removeItem('onbus_token')
+            } catch {}
+          }
+        }
+      })
+      .catch(error => {
+        console.error('Session restore failed:', error)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => { active = false }
+  }, [])
 
   const login = useCallback(async (email, password) => {
     const cleanEmail = (email || '').trim().toLowerCase()
     const cleanPassword = (password || '').toString()
-
     if (!cleanEmail || !cleanPassword) {
       return { success: false, error: 'Email and password are required' }
     }
 
     try {
-      const response = await fetch('/api/db/users/login', {
+      const response = await fetch('/api/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ identifier: cleanEmail, password: cleanPassword })
       })
-      const result = await response.json()
-
-      if (!response.ok || !result.success) {
-        return { success: false, error: result.error || 'Login failed. Please try again.' }
-      }
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(result.user))
+      const result = await readResponse(response, 'Login failed. Please try again.')
       setUser(result.user)
+      if (result.token) {
+        try { localStorage.setItem('onbus_token', result.token) } catch {}
+      }
+      if (result.user) {
+        try { localStorage.setItem('onbus_user', JSON.stringify(result.user)) } catch {}
+      }
       return { success: true, user: result.user }
-    } catch (err) {
-      return { success: false, error: 'Authentication service is unavailable. Please try again.' }
+    } catch (error) {
+      return { success: false, error: error.message || 'Authentication service is unavailable. Please try again.' }
     }
   }, [])
 
@@ -52,15 +95,14 @@ export function AuthProvider({ children }) {
     const cleanEmail = (email || '').trim().toLowerCase()
     const cleanPassword = (password || '').toString()
     const cleanPhone = (phone || '').trim()
-
     if (!cleanName || !cleanEmail || !cleanPassword) {
       return { success: false, error: 'Please fill in all required fields' }
     }
 
     try {
-      const response = await fetch('/api/db/users/register', {
+      const response = await fetch('/api/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           name: cleanName,
           username: cleanEmail.split('@')[0],
@@ -69,44 +111,57 @@ export function AuthProvider({ children }) {
           password: cleanPassword
         })
       })
-      const result = await response.json()
-
-      if (!response.ok || !result.success) {
-        return { success: false, error: result.error || 'Registration failed. Please try again.' }
-      }
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(result.user))
+      const result = await readResponse(response, 'Registration failed. Please try again.')
       setUser(result.user)
+      if (result.token) {
+        try { localStorage.setItem('onbus_token', result.token) } catch {}
+      }
+      if (result.user) {
+        try { localStorage.setItem('onbus_user', JSON.stringify(result.user)) } catch {}
+      }
       return { success: true, user: result.user }
-    } catch (err) {
-      return { success: false, error: 'Registration service is unavailable. Please try again.' }
+    } catch (error) {
+      return { success: false, error: error.message || 'Registration service is unavailable. Please try again.' }
     }
   }, [])
 
   const logout = useCallback(() => {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch { /* ignore */ }
     setUser(null)
+    const token = (() => {
+      try { return localStorage.getItem('onbus_token') } catch { return null }
+    })()
+    try {
+      localStorage.removeItem('onbus_token')
+      localStorage.removeItem('onbus_user')
+    } catch {}
+
+    fetch('/api/session', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    })
+      .then(response => readResponse(response, 'Unable to end your session'))
+      .catch(error => console.error('Logout failed:', error))
   }, [])
 
-  const updateProfile = useCallback((updates) => {
+  const updateProfile = useCallback(async (updates) => {
+    if (!user) return { success: false, error: 'No active session' }
     try {
-      if (!user) return { success: false, error: 'No active session' }
-      const updated = { ...user, ...updates }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-
-      const users = getStoredUsers()
-      const idx = users.findIndex(u => u.id === user.id)
-      if (idx >= 0) {
-        users[idx] = { ...users[idx], ...updates }
-        localStorage.setItem(USERS_KEY, JSON.stringify(users))
+      const response = await fetch('/api/session', {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(updates)
+      })
+      const result = await readResponse(response, 'Profile update failed')
+      setUser(result.user)
+      if (result.user) {
+        try { localStorage.setItem('onbus_user', JSON.stringify(result.user)) } catch {}
       }
-
-      setUser(updated)
       return { success: true }
-    } catch {
-      return { success: false, error: 'Update failed' }
+    } catch (error) {
+      return { success: false, error: error.message || 'Profile update failed' }
     }
   }, [user])
 

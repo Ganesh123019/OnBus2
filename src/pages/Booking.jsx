@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { BUSES, generateSeatLayout, getBookedSeats } from '../data/buses'
+import { BUSES, generateSeatLayout } from '../data/buses'
 import { useAuth } from '../hooks/useAuth'
 import { useBooking } from '../hooks/useBooking'
 import { useToastCtx } from '../components/Layout'
@@ -11,7 +11,7 @@ export default function Booking() {
   const { busId } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { createBooking } = useBooking()
+  const { createBooking, getBookedSeats } = useBooking()
   const toast = useToastCtx()
 
   const bus = BUSES.find(b => b.id === busId)
@@ -19,6 +19,7 @@ export default function Booking() {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [selectedDeparture, setSelectedDeparture] = useState(() => bus?.schedule[0]?.departure || '08:00')
   const [selectedSeats, setSelectedSeats] = useState([])
+  const [bookedSeats, setBookedSeats] = useState([])
   const [boardingStop, setBoardingStop] = useState(() => bus?.route.from || '')
   const [droppingStop, setDroppingStop] = useState(() => bus?.route.to || '')
   const [paymentMethod, setPaymentMethod] = useState('UPI')
@@ -26,16 +27,27 @@ export default function Booking() {
   const [passengerName, setPassengerName] = useState(user?.name || '')
   const [passengerPhone, setPassengerPhone] = useState(user?.phone || '')
 
-  // Generate seat map taking existing bookings into account
-  const bookedSeats = useMemo(() => {
-    if (!bus) return []
-    return getBookedSeats(bus.id)
-  }, [bus])
-
   const seatLayout = useMemo(() => {
     if (!bus) return []
-    return generateSeatLayout(bus)
-  }, [bus])
+    return generateSeatLayout(bus, bookedSeats)
+  }, [bus, bookedSeats])
+
+  useEffect(() => {
+    let active = true
+    if (!bus) return () => { active = false }
+
+    getBookedSeats(bus.id, date, selectedDeparture)
+      .then(seats => {
+        if (active) setBookedSeats(seats)
+      })
+      .catch(error => {
+        console.error('Seat availability check failed:', error)
+        if (active) setBookedSeats([])
+        if (active && toast?.error) toast.error('Unable to check seat availability. Please try again.')
+      })
+
+    return () => { active = false }
+  }, [bus, date, selectedDeparture, getBookedSeats, toast])
 
   if (!bus) {
     return (
